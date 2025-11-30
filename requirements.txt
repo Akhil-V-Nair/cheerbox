@@ -1,3 +1,6 @@
 requests
 python-dotenv
 subliminal
+beautifulsoup4
+polars
+duckdb

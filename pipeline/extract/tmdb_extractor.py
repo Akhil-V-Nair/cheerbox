@@ -9,41 +9,33 @@ from dotenv import load_dotenv
 load_dotenv()
 BEARER_TOKEN = os.getenv("TMDB_BEARER_TOKEN")
 
-# Resolve project root safely (3 levels up)
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 BRONZE_DIR = os.path.join(BASE_DIR, "data", "bronze")
 
 
 # =====================
-# TMDB API CLIENT
+# TMDB CLIENT
 # =====================
 
 class TMDBClient:
-    """
-    Responsible ONLY for making TMDb API requests.
-    Clean, low-level HTTP wrapper.
-    """
-
     BASE_URL = "https://api.themoviedb.org/3"
 
     def __init__(self, bearer_token: str):
         if not bearer_token:
-            raise ValueError("TMDB_BEARER_TOKEN not found in .env file.")
+            raise ValueError("TMDB_BEARER_TOKEN missing.")
         
         self.headers = {
             "Authorization": f"Bearer {bearer_token}",
             "Content-Type": "application/json;charset=utf-8"
         }
 
-    def get_genres(self) -> Dict:
-        """Fetch TMDb genre list."""
+    def get_genres(self) -> List[Dict]:
         url = f"{self.BASE_URL}/genre/movie/list"
-        r = requests.get(url, headers=self.headers)
-        r.raise_for_status()
-        return r.json()
+        resp = requests.get(url, headers=self.headers)
+        resp.raise_for_status()
+        return resp.json().get("genres", [])
 
     def discover_movies(self, genre_id: int, page: int = 1) -> Dict:
-        """Fetch movies for a genre + page number."""
         url = f"{self.BASE_URL}/discover/movie"
         params = {
             "with_genres": genre_id,
@@ -52,75 +44,72 @@ class TMDBClient:
             "sort_by": "vote_average.desc",
             "vote_count.gte": 5000
         }
+        resp = requests.get(url, headers=self.headers, params=params)
+        resp.raise_for_status()
+        return resp.json()
 
-        r = requests.get(url, headers=self.headers, params=params)
-        r.raise_for_status()
-        return r.json()
+    def get_external_ids(self, movie_id: int) -> Dict:
+        url = f"{self.BASE_URL}/movie/{movie_id}/external_ids"
+        resp = requests.get(url, headers=self.headers)
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_movie_details(self, movie_id: int) -> Dict:
+        """Real genre list comes from this call."""
+        url = f"{self.BASE_URL}/movie/{movie_id}"
+        resp = requests.get(url, headers=self.headers)
+        resp.raise_for_status()
+        return resp.json()
 
 
 # =====================
-# EXTRACTOR CLASS
+# MOVIE EXTRACTOR
 # =====================
 
 class MovieExtractor:
-    """
-    Uses TMDBClient to:
-    - Fetch top movies (up to 1000)
-    - Filter English movies
-    - Save raw dumps to bronze layer
-    """
-
     def __init__(self, tmdb_client: TMDBClient, bronze_path: str = BRONZE_DIR, verbose: bool = True):
         self.tmdb = tmdb_client
         self.bronze_path = bronze_path
         self.verbose = verbose
 
-    # ---------------------
-    # GENRE RESOLUTION
-    # ---------------------
-    def resolve_genre_ids(self, target_genres: Dict[str, List[str]]) -> Dict[str, List[int]]:
-        """ Map genre names → TMDb genre IDs dynamically. """
-
-        tmdb_genres = self.tmdb.get_genres().get("genres", [])
+    def resolve_genre_ids(self, target_genres: Dict[str, List[str]]) -> Dict[str, List[Dict]]:
+        """Map your category → TMDb genre objects."""
+        tmdb_genres = self.tmdb.get_genres()
         resolved = {}
-
-        for label, genre_names in target_genres.items():
-            ids = [
-                g["id"]
+        for label, names in target_genres.items():
+            resolved[label] = [
+                {"id": g["id"], "name": g["name"]}
                 for g in tmdb_genres
-                if g["name"] in genre_names
+                if g["name"] in names
             ]
-            resolved[label] = ids
-
         return resolved
 
-    # ---------------------
-    # MOVIE EXTRACTION
-    # ---------------------
-    def fetch_top_movies_for_genre(self, genre_id: int, limit: int = 1000) -> List[Dict]:
-        """Fetch up to 1000 movies safely."""
+    # --------------------------------------------------------
+    # FAST FETCH (NO IMDB, NO REAL GENRE LIST YET)
+    # --------------------------------------------------------
+    def fetch_movies_basic(self, genre_info: Dict, limit: int = 1000, source_category: str = "") -> List[Dict]:
+        gid = genre_info["id"]
+        gname = genre_info["name"]
+
         movies = []
         page = 1
-        max_pages = 500  # TMDb API limit
 
-        while len(movies) < limit and page <= max_pages:
+        while len(movies) < limit and page <= 500:
             if self.verbose:
-                print(f"[Genre {genre_id}] Fetching page {page}...")
+                print(f"[{source_category}] Discover {gname} | Page {page}")
 
-            data = self.tmdb.discover_movies(genre_id, page)
+            data = self.tmdb.discover_movies(gid, page)
             results = data.get("results", [])
-
             if not results:
                 break
 
             for m in results:
                 if len(movies) >= limit:
                     break
-
                 if m.get("original_language") != "en":
                     continue
 
-                movie_info = {
+                movies.append({
                     "movie_id": m["id"],
                     "title": m["title"],
                     "overview": m.get("overview", ""),
@@ -128,26 +117,51 @@ class MovieExtractor:
                     "vote_count": m.get("vote_count"),
                     "popularity": m.get("popularity"),
                     "poster_path": m.get("poster_path"),
-                    "genre_id": genre_id
-                }
-
-                movies.append(movie_info)
+                    "source_category": source_category,    # <-- keep track for later
+                })
 
             page += 1
-            time.sleep(0.3)  # Prevent rate-limit
+            time.sleep(0.10)
 
         return movies
 
-    # ---------------------
-    # SAVE RAW OUTPUT
-    # ---------------------
-    def save_raw_movies(self, genre_name: str, movies: List[Dict]):
-        os.makedirs(self.bronze_path, exist_ok=True)
-        filepath = os.path.join(self.bronze_path, f"{genre_name}_raw.json")
+    # --------------------------------------------------------
+    # FIX: FETCH REAL TMDB GENRE LIST FROM /movie/{id}
+    # --------------------------------------------------------
+    def attach_real_genres(self, movies: List[Dict]) -> List[Dict]:
+        for m in movies:
+            mid = m["movie_id"]
+            details = self.tmdb.get_movie_details(mid)
+            m["genres"] = details.get("genres", [])
+            time.sleep(0.10)
+        return movies
 
+    # --------------------------------------------------------
+    # ATTACH IMDB IDs
+    # --------------------------------------------------------
+    def attach_imdb_ids(self, movies: List[Dict]) -> List[Dict]:
+        imdb_cache = {}
+
+        for m in movies:
+            mid = m["movie_id"]
+
+            if mid in imdb_cache:
+                m["imdb_id"] = imdb_cache[mid]
+                continue
+
+            ext = self.tmdb.get_external_ids(mid)
+            imdb_id = ext.get("imdb_id")
+            m["imdb_id"] = imdb_id
+            imdb_cache[mid] = imdb_id
+
+            time.sleep(0.10)
+
+        return movies
+
+    # --------------------------------------------------------
+    def save_raw_movies(self, label: str, movies: List[Dict]):
+        os.makedirs(self.bronze_path, exist_ok=True)
+        filepath = os.path.join(self.bronze_path, f"{label}_raw.json")
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(movies, f, indent=2)
-
-        print(f"[+] Saved {len(movies)} movies → {filepath}")
-
-
+        print(f"[+] Saved {len(movies)} → {filepath}")
