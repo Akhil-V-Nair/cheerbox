@@ -4,3 +4,4 @@ subliminal
 beautifulsoup4
 polars
 duckdb
+openai
