@@ -5,3 +5,7 @@ beautifulsoup4
 polars
 duckdb
 openai
+numpy
+pandas
+sentence-transformers
+textblob
