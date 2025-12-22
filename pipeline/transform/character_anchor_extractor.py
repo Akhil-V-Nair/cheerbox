@@ -1,24 +1,22 @@
 # pipeline/transform/character_anchor_extractor.py
 
+import json
+
 def extract_character_anchors(client, title: str, premise: str):
-    """
-    Generates 1–3 character anchors that help humans
-    instantly recognize the movie.
-    """
-
     prompt = f"""
-You are extracting CHARACTER ANCHORS for a movie.
+Extract CHARACTER ANCHORS for a movie.
 
-A character anchor is a SIMPLE, HUMAN-RECOGNIZABLE HANDLE
-that lets someone instantly identify the movie.
+Definition:
+A character anchor is a SIMPLE, CONCRETE identifier
+that instantly helps a human recognize the movie.
 
 Rules:
-- Return 1 to 3 anchors ONLY
+- 1 to 3 anchors ONLY
 - Use REAL character names or team names
-- Keep descriptors literal and short
 - NO emotions
 - NO themes
 - NO abstract language
+- NO metaphor
 
 Allowed types:
 - protagonist
@@ -27,10 +25,10 @@ Allowed types:
 - team
 - symbolic
 
-Return STRICT JSON ARRAY ONLY.
+Return ONLY valid JSON.
 No markdown. No explanation.
 
-Example:
+Format:
 [
   {{
     "label": "Cooper",
@@ -43,12 +41,19 @@ Movie title: {title}
 Premise: {premise}
 """
 
-    response = client.responses.create(
+    resp = client.responses.create(
         model="gpt-4o-mini",
         input=prompt
     )
 
+    raw = resp.output_text.strip()
+
     try:
-        return response.output_parsed
-    except Exception:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return parsed
+        return []
+    except json.JSONDecodeError:
+        print(f"[!] JSON parse failed for: {title}")
+        print(raw)
         return []

@@ -9,19 +9,15 @@ ALLOWED_TYPES = {
 }
 
 ABSTRACT_WORDS = {
-    "emotional",
     "identity",
     "journey",
-    "inner",
-    "fractured",
+    "emotional",
+    "existential",
     "psychological",
-    "existential"
+    "fractured"
 }
 
 def validate_character_anchors(anchors):
-    """
-    Validates anchors for structure and human readability.
-    """
     valid = []
 
     for a in anchors:
@@ -38,9 +34,7 @@ def validate_character_anchors(anchors):
         if atype not in ALLOWED_TYPES:
             continue
 
-        # Reject abstract / AI-ish descriptors
-        desc_lower = desc.lower()
-        if any(w in desc_lower for w in ABSTRACT_WORDS):
+        if any(w in desc.lower() for w in ABSTRACT_WORDS):
             continue
 
         valid.append({
