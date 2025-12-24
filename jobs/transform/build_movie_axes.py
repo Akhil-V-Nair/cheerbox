@@ -1,42 +1,47 @@
 #!/usr/bin/env python3
 
+import json
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
+from openai import OpenAI
 
-# --------------------------------------------------
-# Ensure project root is on PYTHONPATH
-# --------------------------------------------------
+# ---------------------------------------------------
+# PATH FIX — ensures NO module errors
+# ---------------------------------------------------
 ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+sys.path.append(str(ROOT))
 
-import json
-from pipeline.transform.axis_selector import select_axes
+load_dotenv(ROOT / ".env")
 
+from pipeline.transform.axis_generator import generate_axes
+from pipeline.transform.axis_validator import validate_axes
+
+# ---------------------------------------------------
+# FILES
+# ---------------------------------------------------
 SILVER = ROOT / "data" / "silver" / "movies_silver_validated.json"
-CHARACTERS = ROOT / "data" / "gold" / "movie_character_anchors.json"
 OUT = ROOT / "data" / "gold" / "movie_axes.json"
+
+client = OpenAI()
 
 def main():
     movies = json.loads(SILVER.read_text(encoding="utf-8"))
-    char_map = {
-        m["movie_id"]: m.get("character_anchors", [])
-        for m in json.loads(CHARACTERS.read_text(encoding="utf-8"))
-    }
-
     results = []
 
     for m in movies:
-        axes = select_axes(
-            genres=m.get("genres", []),
-            premise=m.get("premise", ""),
-            character_anchors=char_map.get(m["movie_id"], [])
-        )
+        title = m["title"]
+        premise = m.get("premise", "")
+        genres = [g["name"] for g in m.get("genres", [])]
+
+        axes = generate_axes(client, title, premise, genres)
+        validation = validate_axes(axes, genres)
 
         results.append({
             "movie_id": m["movie_id"],
-            "title": m["title"],
-            "axes": axes
+            "title": title,
+            "axes": axes,
+            "validation": validation
         })
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
