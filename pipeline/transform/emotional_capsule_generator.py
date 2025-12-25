@@ -1,52 +1,41 @@
-def generate_emotional_capsules(client, *, title, premise, axes, genre):
+def generate_emotional_capsules(client, title, premise, axes):
     """
-    Generates exactly 4 emotional capsules.
+    Returns RAW TEXT from the LLM.
+    JSON is encouraged but NOT required.
     """
 
     axes_text = "\n".join(f"- {a}" for a in axes)
 
     prompt = f"""
-You describe how a movie FEELS to watch.
+Generate 5 emotional capsules for this film.
 
-You are NOT explaining themes.
-You are NOT analyzing cinema.
-You are NOT poetic.
+Each capsule must include:
+- axis: choose one axis from the list below
+- emotion: one simple human word
+- text: one short sentence describing an emotional tension
 
 Rules:
-- Write exactly 4 capsules
-- Each capsule has:
-  • axis (must be one of the provided axes)
-  • emotion (ONE simple word)
-  • text (ONE sentence, conversational)
-- No plot events
-- No character names
-- No film theory words
-- No words like: explores, reflects, narrative, journey, masterfully
+- Do NOT use second-person language.
+- Do NOT mention characters or names.
+- Do NOT describe specific scenes.
+- Do NOT explain the movie.
+- Avoid academic or critic language.
+- Language must sound casual and human.
 
-Movie title: {title}
-Premise (identifier, not plot):
-{premise}
-
-Genre:
-{genre}
-
-Allowed emotional axes:
+Axes:
 {axes_text}
 
-Output JSON ONLY in this format:
+Film premise:
+{premise}
 
-[
-  {{
-    "axis": "...",
-    "emotion": "...",
-    "text": "..."
-  }}
-]
+Return JSON if possible.
+If not, return one capsule per line in this format:
+AXIS | emotion | text
 """
 
-    response = client.responses.create(
+    resp = client.responses.create(
         model="gpt-4o-mini",
         input=prompt
     )
 
-    return response.output_text
+    return resp.output_text.strip()

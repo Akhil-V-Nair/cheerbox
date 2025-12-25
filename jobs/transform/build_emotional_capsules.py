@@ -2,12 +2,13 @@
 
 import sys
 import json
+import re
 from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 
 # --------------------------------------------------
-# Fix import path permanently
+# Fix imports permanently
 # --------------------------------------------------
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
@@ -30,6 +31,38 @@ client = OpenAI()
 MAX_RETRIES = 2
 
 
+def try_parse_json(text):
+    try:
+        return json.loads(text)
+    except Exception:
+        return None
+
+
+def recover_capsules_from_text(text, axes):
+    """
+    Fallback parser: AXIS | emotion | text
+    """
+    capsules = []
+    lines = [l.strip() for l in text.splitlines() if "|" in l]
+
+    for i, line in enumerate(lines[:5]):
+        parts = [p.strip() for p in line.split("|", 2)]
+        if len(parts) != 3:
+            continue
+
+        axis = parts[0] if parts[0] in axes else axes[i % len(axes)]
+        emotion = parts[1]
+        sentence = parts[2]
+
+        capsules.append({
+            "axis": axis,
+            "emotion": emotion,
+            "text": sentence
+        })
+
+    return capsules
+
+
 def main():
     movies = json.loads(GOLD_IN.read_text(encoding="utf-8"))
     results = []
@@ -41,7 +74,6 @@ def main():
         title = m["title"]
         premise = m.get("premise", "").strip()
         axes = m.get("axes", [])
-        genre = m.get("genre", "")
 
         if not premise or not axes:
             results.append({
@@ -52,37 +84,39 @@ def main():
             })
             continue
 
-        capsules_text = ""
+        raw_text = ""
+        capsules = []
         valid = False
         reason = "unknown"
 
         for _ in range(MAX_RETRIES):
-            capsules_text = generate_emotional_capsules(
-                client,
-                title=title,
-                premise=premise,
-                axes=axes,
-                genre=genre
-            )
+            raw_text = generate_emotional_capsules(client, title, premise, axes)
 
-            valid, reason = validate_emotional_capsules(capsules_text, axes)
+            parsed = try_parse_json(raw_text)
+            if parsed:
+                capsules = parsed
+            else:
+                capsules = recover_capsules_from_text(raw_text, axes)
+
+            valid, reason = validate_emotional_capsules(capsules, axes)
             if valid:
                 break
 
         if valid:
             generated += 1
-            capsules = json.loads(capsules_text)
             status = "pass"
         else:
             flagged += 1
-            capsules = json.loads(capsules_text) if capsules_text else []
             status = "flagged"
 
         results.append({
             "movie_id": m["movie_id"],
             "title": title,
             "emotional_capsules": capsules,
-            "validation": {"status": status, "reason": reason}
+            "validation": {
+                "status": status,
+                "reason": reason
+            }
         })
 
     OUT.parent.mkdir(parents=True, exist_ok=True)

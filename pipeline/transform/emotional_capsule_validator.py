@@ -1,46 +1,27 @@
-import json
 import re
 
-BANNED_WORDS = {
-    "explores", "reflects", "narrative", "journey", "symbolizes",
-    "masterfully", "intricately", "the film", "the movie"
-}
+SECOND_PERSON = re.compile(r"\b(you|your|you're|you’re)\b", re.I)
 
-def validate_emotional_capsules(text, allowed_axes):
-    try:
-        capsules = json.loads(text)
-    except Exception:
-        return False, "invalid_json"
+def validate_emotional_capsules(capsules, axes):
+    """
+    capsules: list[dict]
+    """
 
-    if not isinstance(capsules, list) or len(capsules) != 4:
-        return False, "wrong_count"
+    if not isinstance(capsules, list):
+        return False, "not_list"
 
-    seen_emotions = set()
+    if len(capsules) < 4:
+        return False, "too_few_capsules"
 
     for c in capsules:
-        if not all(k in c for k in ("axis", "emotion", "text")):
-            return False, "missing_fields"
-
-        if c["axis"] not in allowed_axes:
+        if c.get("axis") not in axes:
             return False, "invalid_axis"
 
-        emotion = c["emotion"].lower().strip()
-        if " " in emotion:
-            return False, "emotion_not_single_word"
+        text = c.get("text", "")
+        if not text or len(text.split()) > 25:
+            return False, "bad_text_length"
 
-        if emotion in seen_emotions:
-            return False, "duplicate_emotion"
-        seen_emotions.add(emotion)
-
-        text_lower = c["text"].lower()
-
-        if len(c["text"].split(".")) > 2:
-            return False, "too_many_sentences"
-
-        if any(b in text_lower for b in BANNED_WORDS):
-            return False, "ai_language"
-
-        if re.search(r"[A-Z][a-z]+", c["text"]):
-            return False, "possible_character_name"
+        if SECOND_PERSON.search(text):
+            return False, "second_person"
 
     return True, "pass"
