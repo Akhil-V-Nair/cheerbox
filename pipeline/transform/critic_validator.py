@@ -1,42 +1,42 @@
+# cheerbox/pipeline/transform/critic_validator.py
+
 import re
 
-MIN_WORDS = 70
-MAX_WORDS = 130
-
-FORBIDDEN_GENERIC_PHRASES = [
-    "human condition",
-    "deeper themes",
-    "complex narrative",
-    "emotional journey",
-    "thought-provoking",
-    "layered storytelling"
-]
+BANNED_WORDS = {
+    "masterfully",
+    "intricately",
+    "explores",
+    "examines",
+    "delves",
+    "narrative",
+    "cinematography",
+    "themes",
+    "symbolizes"
+}
 
 def validate_critic_summary(text: str) -> tuple[bool, str]:
     """
-    Returns (is_valid, reason)
+    Validates whether the critic summary sounds human and experiential.
     """
 
-    if not text or not text.strip():
-        return False, "empty"
-
-    words = text.split()
-    wc = len(words)
-
-    if wc < MIN_WORDS:
+    if not text or len(text.split()) < 60:
         return False, "too_short"
 
-    if wc > MAX_WORDS:
-        return False, "too_long"
+    lowered = text.lower()
 
-    lower = text.lower()
+    for word in BANNED_WORDS:
+        if word in lowered:
+            return False, f"banned_word:{word}"
 
-    for phrase in FORBIDDEN_GENERIC_PHRASES:
-        if phrase in lower:
-            return False, f"generic_phrase:{phrase}"
+    # must reference audience experience
+    if not any(
+        phrase in lowered
+        for phrase in ["viewers", "audience", "people", "you feel", "it feels"]
+    ):
+        return False, "no_audience_perspective"
 
-    # reject bullet points, lists, formatting
-    if re.search(r"[\n•\-]", text):
-        return False, "formatting_detected"
+    # reject academic tone
+    if re.search(r"\b(identity|tension|duality|conflict)\b", lowered):
+        return False, "abstract_language"
 
     return True, "pass"

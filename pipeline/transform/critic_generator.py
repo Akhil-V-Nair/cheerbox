@@ -1,36 +1,40 @@
-from openai import OpenAI
+# cheerbox/pipeline/transform/critic_generator.py
 
-MODEL = "gpt-4o-mini"
-
-def generate_critic_summary(client: OpenAI, *, title: str, premise: str, axes: list[str]) -> str:
+def generate_critic_summary(client, title: str, premise: str, axes: list[str]) -> str:
     """
-    Generates a single-paragraph critic summary grounded in premise + axes.
+    Generates a human-sounding critic summary that explains
+    WHY the movie emotionally works on audiences.
     """
 
-    axis_text = ", ".join(axes)
+    axes_text = ", ".join(axes)
 
     prompt = f"""
-You are a professional film critic.
+You are writing like a human film critic explaining audience reaction.
 
-Write ONE paragraph (80–110 words).
+Write ONE paragraph (70–100 words).
 
-Rules:
-- Do NOT describe scenes, plot events, or characters.
-- Do NOT quote dialogue.
-- Do NOT use abstract academic language.
-- Ground the analysis in the movie's core premise.
-- Use the emotional tension implied by these axes:
-  {axis_text}
-
-The paragraph must feel specific to THIS movie.
+Rules (VERY IMPORTANT):
+- DO NOT describe plot events or scenes
+- DO NOT praise filmmaking or use critic jargon
+- DO NOT say: masterfully, intricately, explores, examines, delves
+- DO NOT list themes
+- DO explain how the movie makes viewers feel and why it stays with them
+- Write like someone recommending the movie from experience
 
 Movie title: {title}
-Core premise: {premise}
+
+Movie identity:
+{premise}
+
+Emotional tensions the movie operates on:
+{axes_text}
+
+Write naturally and plainly.
 """
 
-    resp = client.responses.create(
-        model=MODEL,
+    response = client.responses.create(
+        model="gpt-4o-mini",
         input=prompt
     )
 
-    return resp.output_text.strip()
+    return response.output_text.strip()

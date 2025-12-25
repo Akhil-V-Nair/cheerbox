@@ -7,19 +7,19 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 # --------------------------------------------------
-# Fix import path ONCE and forever
+# Fix import path permanently
 # --------------------------------------------------
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT))
+sys.path.append(str(ROOT))
 
-from pipeline.transform.critic_generator import generate_critic_summary
-from pipeline.transform.critic_validator import validate_critic_summary
+from pipeline.transform.emotional_capsule_generator import generate_emotional_capsules
+from pipeline.transform.emotional_capsule_validator import validate_emotional_capsules
 
 # --------------------------------------------------
 # Paths
 # --------------------------------------------------
 GOLD_IN = ROOT / "data" / "gold" / "movies_gold.json"
-OUT = ROOT / "data" / "gold" / "movie_critic_summaries.json"
+OUT = ROOT / "data" / "gold" / "movie_emotional_capsules.json"
 
 # --------------------------------------------------
 # Setup
@@ -36,67 +36,60 @@ def main():
 
     generated = 0
     flagged = 0
-    skipped = 0
 
     for m in movies:
-        movie_id = m["movie_id"]
-        title = m.get("title", "")
+        title = m["title"]
         premise = m.get("premise", "").strip()
         axes = m.get("axes", [])
+        genre = m.get("genre", "")
 
         if not premise or not axes:
-            skipped += 1
             results.append({
-                "movie_id": movie_id,
+                "movie_id": m["movie_id"],
                 "title": title,
-                "critic_summary": "",
-                "validation": {
-                    "status": "skipped",
-                    "reason": "missing_inputs"
-                }
+                "emotional_capsules": [],
+                "validation": {"status": "skipped", "reason": "missing_inputs"}
             })
             continue
 
-        summary = ""
+        capsules_text = ""
         valid = False
         reason = "unknown"
 
         for _ in range(MAX_RETRIES):
-            summary = generate_critic_summary(
-                client=client,
+            capsules_text = generate_emotional_capsules(
+                client,
                 title=title,
                 premise=premise,
-                axes=axes
+                axes=axes,
+                genre=genre
             )
 
-            valid, reason = validate_critic_summary(summary)
+            valid, reason = validate_emotional_capsules(capsules_text, axes)
             if valid:
                 break
 
         if valid:
             generated += 1
+            capsules = json.loads(capsules_text)
             status = "pass"
         else:
             flagged += 1
+            capsules = json.loads(capsules_text) if capsules_text else []
             status = "flagged"
 
-        # IMPORTANT: flagged summaries are kept, not wiped
         results.append({
-            "movie_id": movie_id,
+            "movie_id": m["movie_id"],
             "title": title,
-            "critic_summary": summary,
-            "validation": {
-                "status": status,
-                "reason": reason
-            }
+            "emotional_capsules": capsules,
+            "validation": {"status": status, "reason": reason}
         })
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    print(f"[✓] Critic summaries generated: {generated}")
-    print(f"[!] Flagged (kept): {flagged}")
-    print(f"[–] Skipped: {skipped}")
+    print(f"[✓] Generated: {generated}")
+    print(f"[!] Flagged: {flagged}")
     print(f"[✓] Output → {OUT}")
 
 
