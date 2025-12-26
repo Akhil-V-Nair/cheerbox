@@ -1,41 +1,32 @@
-def generate_emotional_capsules(client, title, premise, axes):
-    """
-    Returns RAW TEXT from the LLM.
-    JSON is encouraged but NOT required.
-    """
+# pipeline/transform/emotional_capsule_generator.py
 
-    axes_text = "\n".join(f"- {a}" for a in axes)
+def generate_emotional_capsules(client, title, premise, axes):
+    axes_text = ", ".join(axes)
 
     prompt = f"""
-Generate 5 emotional capsules for this film.
+Write exactly 5 emotional capsules for the movie below.
 
-Each capsule must include:
-- axis: choose one axis from the list below
-- emotion: one simple human word
-- text: one short sentence describing an emotional tension
+STRICT FORMAT RULE (DO NOT BREAK):
+Each line must follow this format exactly:
+AXIS :: emotion :: short sentence
 
 Rules:
-- Do NOT use second-person language.
-- Do NOT mention characters or names.
-- Do NOT describe specific scenes.
-- Do NOT explain the movie.
-- Avoid academic or critic language.
-- Language must sound casual and human.
+- AXIS must be one of: {axes_text}
+- One capsule per line
+- No character names
+- No second-person language (no "you")
+- No plot or scene description
+- Use simple, everyday words
+- Each sentence under 18 words
+- Do not add explanations or headers
 
-Axes:
-{axes_text}
-
-Film premise:
+Movie premise:
 {premise}
-
-Return JSON if possible.
-If not, return one capsule per line in this format:
-AXIS | emotion | text
 """
 
-    resp = client.responses.create(
+    response = client.responses.create(
         model="gpt-4o-mini",
         input=prompt
     )
 
-    return resp.output_text.strip()
+    return response.output_text.strip()
